@@ -292,10 +292,13 @@ fun TelegramScreen(
     if (uiState.showLoginDialog) {
         TelegramLoginDialog(
             state = uiState,
+            onTabSelected = { viewModel.selectLoginTab(it) },
             onPhoneChange = { viewModel.onPhoneChange(it) },
             onCodeChange = { viewModel.onCodeChange(it) },
+            onBotTokenChange = { viewModel.onBotTokenChange(it) },
             onRequestCode = { viewModel.requestVerificationCode() },
             onSubmitCode = { viewModel.submitCode() },
+            onSubmitBotToken = { viewModel.submitBotToken() },
             onDemoLogin = { viewModel.loginDemoMode() },
             onDismiss = { viewModel.closeLoginDialog() }
         )

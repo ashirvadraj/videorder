@@ -16,6 +16,8 @@ class TelegramAuthUseCase(private val repository: TelegramRepository) {
         return repository.verifyCode(phoneCodeHash, code, password2FA)
     }
 
+    suspend fun loginWithBotToken(token: String) = repository.loginWithBotToken(token)
+
     suspend fun loginWithDemoSession(): Result<Boolean> {
         return repository.loginWithDemoSession()
     }

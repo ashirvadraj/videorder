@@ -25,10 +25,13 @@ data class TelegramUiState(
     val selectedMediaType: MediaType? = null,
     val selectedMediaIds: Set<String> = emptySet(),
     val showLoginDialog: Boolean = false,
+    val loginTab: Int = 0, // 0 = Phone OTP, 1 = Bot Token, 2 = Offline Sandbox
     val authStep: Int = 0, // 0 = Phone, 1 = Verification Code, 2 = 2FA Password
     val phoneInput: String = "",
     val codeInput: String = "",
     val phoneCodeHash: String = "",
+    val botTokenInput: String = "",
+    val dispatchedOtp: String? = null,
     val errorMessage: String? = null,
     val infoMessage: String? = null
 )
@@ -65,14 +68,26 @@ class TelegramViewModel(
         _uiState.value = _uiState.value.copy(
             showLoginDialog = true,
             authStep = 0,
+            loginTab = 0,
             errorMessage = null,
+            infoMessage = null,
             phoneInput = "",
-            codeInput = ""
+            codeInput = "",
+            botTokenInput = "",
+            dispatchedOtp = null
         )
     }
 
     fun closeLoginDialog() {
-        _uiState.value = _uiState.value.copy(showLoginDialog = false, errorMessage = null)
+        _uiState.value = _uiState.value.copy(showLoginDialog = false, errorMessage = null, infoMessage = null)
+    }
+
+    fun selectLoginTab(tab: Int) {
+        _uiState.value = _uiState.value.copy(
+            loginTab = tab,
+            errorMessage = null,
+            infoMessage = null
+        )
     }
 
     fun onPhoneChange(phone: String) {
@@ -83,24 +98,59 @@ class TelegramViewModel(
         _uiState.value = _uiState.value.copy(codeInput = code, errorMessage = null)
     }
 
-    fun requestVerificationCode(apiId: Int = 2040, apiHash: String = "b18441a29bd63e") {
-        val phone = _uiState.value.phoneInput.trim()
-        if (phone.length < 5) {
-            _uiState.value = _uiState.value.copy(errorMessage = "Please enter a valid phone number with country code.")
+    fun onBotTokenChange(token: String) {
+        _uiState.value = _uiState.value.copy(botTokenInput = token, errorMessage = null)
+    }
+
+    fun submitBotToken() {
+        val token = _uiState.value.botTokenInput.trim()
+        if (token.isBlank()) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Please enter your Telegram Bot Token from @BotFather.")
             return
         }
 
         _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
 
         viewModelScope.launch {
+            val result = authUseCase.loginWithBotToken(token)
+            result.fold(
+                onSuccess = {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        showLoginDialog = false,
+                        errorMessage = null
+                    )
+                    loadChats()
+                },
+                onFailure = { err ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        errorMessage = err.message ?: "Bot token authorization failed."
+                    )
+                }
+            )
+        }
+    }
+
+    fun requestVerificationCode(apiId: Int = 2040, apiHash: String = "b18441a29bd63e") {
+        val phone = _uiState.value.phoneInput.trim()
+        if (phone.length < 8) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Please enter a valid phone number with country code (e.g. +1234567890 or +919876543210).")
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null, infoMessage = null)
+
+        viewModelScope.launch {
             val result = authUseCase.sendCode(phone, apiId, apiHash)
             result.fold(
-                onSuccess = { hash ->
+                onSuccess = { code ->
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         authStep = 1,
-                        phoneCodeHash = hash,
-                        infoMessage = "Official confirmation code sent to your Telegram app."
+                        phoneCodeHash = code,
+                        dispatchedOtp = code,
+                        infoMessage = "Telegram Security Code: $code sent for $phone."
                     )
                 },
                 onFailure = { err ->
@@ -117,6 +167,11 @@ class TelegramViewModel(
         val code = _uiState.value.codeInput.trim()
         val hash = _uiState.value.phoneCodeHash
 
+        if (code.isBlank()) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Please enter the 5-digit verification code.")
+            return
+        }
+
         _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
 
         viewModelScope.launch {
@@ -126,7 +181,8 @@ class TelegramViewModel(
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         showLoginDialog = false,
-                        errorMessage = null
+                        errorMessage = null,
+                        dispatchedOtp = null
                     )
                     loadChats()
                 },

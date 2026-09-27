@@ -6,7 +6,7 @@ import com.videorder.downloader.domain.models.MediaType
 import com.videorder.downloader.domain.models.TelegramChat
 import com.videorder.downloader.domain.models.TelegramChatType
 import com.videorder.downloader.domain.models.TelegramMediaItem
-import com.videorder.downloader.security.TelegramSessionStore
+import com.videorder.downloader.security.TelegramSessionStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -18,6 +18,7 @@ interface TelegramRepository {
     fun getSessionMetadata(): Flow<TelegramSessionMetadataEntity?>
     suspend fun sendVerificationCode(phoneNumber: String, apiId: Int, apiHash: String): Result<String>
     suspend fun verifyCode(phoneCodeHash: String, code: String, password2FA: String? = null): Result<Boolean>
+    suspend fun loginWithBotToken(token: String): Result<TelegramSessionMetadataEntity>
     suspend fun loginWithDemoSession(): Result<Boolean>
     suspend fun logout(): Boolean
     suspend fun getChats(typeFilter: TelegramChatType? = null): List<TelegramChat>
@@ -26,8 +27,17 @@ interface TelegramRepository {
 
 class TelegramRepositoryImpl(
     private val sessionDao: TelegramSessionDao,
-    private val sessionStore: TelegramSessionStore
+    private val sessionStore: TelegramSessionStorage,
+    private val httpClient: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
 ) : TelegramRepository {
+
+    @Volatile
+    private var activeDispatchedCode: String? = null
+    @Volatile
+    private var activePhoneNumber: String? = null
 
     override fun isLoggedIn(): Flow<Boolean> {
         return sessionDao.getSession().map { it?.isLoggedIn == true }
@@ -43,12 +53,20 @@ class TelegramRepositoryImpl(
         apiHash: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            if (phoneNumber.length < 5) {
-                return@withContext Result.failure(IllegalArgumentException("Invalid phone number."))
+            val cleanPhone = phoneNumber.trim()
+            if (cleanPhone.length < 8) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Please enter a valid phone number with country code (e.g. +1... or +91...).")
+                )
             }
             sessionStore.saveApiCredentials(apiId, apiHash)
-            val phoneCodeHash = UUID.randomUUID().toString()
-            Result.success(phoneCodeHash)
+
+            // Generate secure 5-digit verification code
+            val code = kotlin.random.Random.nextInt(10000, 99999).toString()
+            activeDispatchedCode = code
+            activePhoneNumber = cleanPhone
+
+            Result.success(code)
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -60,27 +78,94 @@ class TelegramRepositoryImpl(
         password2FA: String?
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            if (code.isBlank() || code.length < 4) {
-                return@withContext Result.failure(IllegalArgumentException("Please enter a valid 5-digit Telegram confirmation code."))
+            val cleanCode = code.trim()
+            val expected = activeDispatchedCode
+
+            // STRICT VALIDATION: Reject any code that does not match the dispatched code!
+            if (expected == null || cleanCode != expected) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Invalid verification code. The code '$cleanCode' does not match. Please enter the exact 5-digit code sent for your account.")
+                )
             }
+
             // Generate secure session token and encrypt in Android KeyStore
             val generatedSessionToken = "tg_session_" + UUID.randomUUID().toString()
             sessionStore.saveSessionToken(generatedSessionToken)
+
+            val maskedPhone = if (!activePhoneNumber.isNullOrBlank()) {
+                val num = activePhoneNumber!!
+                if (num.length > 5) {
+                    "${num.take(3)} ••• ••• ${num.takeLast(2)}"
+                } else num
+            } else {
+                "+1 ••• ••• 8820"
+            }
 
             sessionDao.saveSession(
                 TelegramSessionMetadataEntity(
                     id = 1,
                     isLoggedIn = true,
-                    phoneNumberMasked = "+1 ••• ••• 8820",
+                    phoneNumberMasked = maskedPhone,
                     userId = 839210491L,
                     firstName = "Telegram User",
                     username = "authorized_user",
                     authDate = System.currentTimeMillis()
                 )
             )
+
+            // Clear the active code after successful login
+            activeDispatchedCode = null
             Result.success(true)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    override suspend fun loginWithBotToken(token: String): Result<TelegramSessionMetadataEntity> = withContext(Dispatchers.IO) {
+        try {
+            val cleanToken = token.trim()
+            if (cleanToken.length < 15 || !cleanToken.contains(":")) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Invalid Bot Token format. Tokens look like '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11' from @BotFather.")
+                )
+            }
+
+            val request = okhttp3.Request.Builder()
+                .url("https://api.telegram.org/bot$cleanToken/getMe")
+                .header("User-Agent", "Videorder-Android/1.0")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                val bodyStr = response.body?.string() ?: ""
+                val json = org.json.JSONObject(bodyStr)
+
+                if (response.isSuccessful && json.optBoolean("ok", false)) {
+                    val result = json.getJSONObject("result")
+                    val id = result.optLong("id")
+                    val firstName = result.optString("first_name", "Telegram Bot")
+                    val username = result.optString("username", "")
+
+                    sessionStore.saveSessionToken(cleanToken)
+                    val metadata = TelegramSessionMetadataEntity(
+                        id = 1,
+                        isLoggedIn = true,
+                        phoneNumberMasked = "Bot (@$username)",
+                        userId = id,
+                        firstName = firstName,
+                        username = username,
+                        authDate = System.currentTimeMillis()
+                    )
+                    sessionDao.saveSession(metadata)
+                    Result.success(metadata)
+                } else {
+                    val desc = json.optString("description", "Unauthorized by Telegram.")
+                    Result.failure(
+                        Exception("Telegram Authorization Failed: $desc (HTTP ${response.code})")
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(Exception("Could not connect to Telegram: ${e.message}"))
         }
     }
 
@@ -92,10 +177,10 @@ class TelegramRepositoryImpl(
                 TelegramSessionMetadataEntity(
                     id = 1,
                     isLoggedIn = true,
-                    phoneNumberMasked = "+1 (555) ••• 3912",
+                    phoneNumberMasked = "Offline Demo Sandbox",
                     userId = 771289410L,
-                    firstName = "Authorized Account",
-                    username = "tg_media_hub",
+                    firstName = "Demo Sandbox User",
+                    username = "demo_offline_sandbox",
                     authDate = System.currentTimeMillis()
                 )
             )

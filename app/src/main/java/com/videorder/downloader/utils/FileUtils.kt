@@ -134,4 +134,103 @@ object FileUtils {
             e.printStackTrace()
         }
     }
+
+    fun forwardMedia(context: Context, filePath: String, mimeType: String = "*/*", caption: String? = null) {
+        try {
+            val file = File(filePath)
+            if (!file.exists()) return
+
+            val uri: Uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                if (!caption.isNullOrBlank()) {
+                    putExtra(Intent.EXTRA_TEXT, caption)
+                }
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(Intent.createChooser(intent, "Forward Video to...").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun messageViaTelegram(context: Context, filePath: String? = null, mimeType: String = "*/*", caption: String? = null) {
+        try {
+            val tgIntent = Intent(Intent.ACTION_SEND).apply {
+                if (!filePath.isNullOrBlank()) {
+                    val file = File(filePath)
+                    if (file.exists()) {
+                        val uri: Uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file
+                        )
+                        type = mimeType
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    } else {
+                        type = "text/plain"
+                    }
+                } else {
+                    type = "text/plain"
+                }
+                if (!caption.isNullOrBlank()) {
+                    putExtra(Intent.EXTRA_TEXT, caption)
+                }
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            val telegramPackages = listOf(
+                "org.telegram.messenger",
+                "org.telegram.plus",
+                "org.thunderdog.challegram",
+                "org.telegram.messenger.web"
+            )
+            val pm = context.packageManager
+            val installedTg = telegramPackages.firstOrNull { pkg ->
+                try {
+                    pm.getPackageInfo(pkg, 0)
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+
+            if (installedTg != null) {
+                tgIntent.setPackage(installedTg)
+                context.startActivity(tgIntent)
+            } else {
+                context.startActivity(Intent.createChooser(tgIntent, "Send via Telegram").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun shareTelegramLink(context: Context, url: String, title: String? = null) {
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                val text = if (!title.isNullOrBlank()) "$title\n$url" else url
+                putExtra(Intent.EXTRA_TEXT, text)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share Telegram Video Link").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 }

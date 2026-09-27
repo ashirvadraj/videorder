@@ -22,12 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
 import com.videorder.downloader.domain.models.MediaType
 import com.videorder.downloader.domain.models.TelegramChat
 import com.videorder.downloader.domain.models.TelegramChatType
 import com.videorder.downloader.domain.models.TelegramMediaItem
 import com.videorder.downloader.presentation.common.*
+import com.videorder.downloader.utils.FileUtils
 import com.videorder.downloader.utils.Formatters
 
 @Composable
@@ -37,6 +39,7 @@ fun TelegramScreen(
     onNavigateToWeb: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         containerColor = BgDark,
@@ -281,7 +284,16 @@ fun TelegramScreen(
                                 item = item,
                                 isSelected = isSelected,
                                 onToggleSelect = { viewModel.toggleMediaSelection(item.id) },
-                                onDownload = { viewModel.downloadSingle(item) }
+                                onDownload = { viewModel.downloadSingle(item) },
+                                onForward = {
+                                    FileUtils.shareTelegramLink(context, item.downloadUrl, "Telegram Media: ${item.filename}")
+                                },
+                                onMessageInTelegram = {
+                                    FileUtils.messageViaTelegram(
+                                        context = context,
+                                        caption = "Check out this media: ${item.filename}\n${item.downloadUrl}"
+                                    )
+                                }
                             )
                         }
                         item {
@@ -470,7 +482,9 @@ fun TelegramMediaCard(
     item: TelegramMediaItem,
     isSelected: Boolean,
     onToggleSelect: () -> Unit,
-    onDownload: () -> Unit
+    onDownload: () -> Unit,
+    onForward: () -> Unit = {},
+    onMessageInTelegram: () -> Unit = {}
 ) {
     val borderColor = if (isSelected) AccentCyan else BorderDark
     val bgColor = if (isSelected) AccentCyan.copy(alpha = 0.08f) else SurfaceDark
@@ -533,7 +547,23 @@ fun TelegramMediaCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            // Forward Link
+            IconButton(
+                onClick = onForward,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = "Forward Link", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
+            }
+
+            // Message in Telegram
+            IconButton(
+                onClick = onMessageInTelegram,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Message in Telegram", tint = AccentCyan, modifier = Modifier.size(16.dp))
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
 
             IconButton(
                 onClick = onDownload,

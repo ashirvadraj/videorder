@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -115,6 +116,8 @@ fun FilesScreen(
                             onClick = { viewModel.openFileDetails(file) },
                             onOpen = { FileUtils.openFile(context, file.localPath, file.mimeType) },
                             onShare = { FileUtils.shareFile(context, file.localPath, file.mimeType) },
+                            onForward = { FileUtils.forwardMedia(context, file.localPath, file.mimeType) },
+                            onMessageInTelegram = { FileUtils.messageViaTelegram(context, file.localPath, file.mimeType) },
                             onRename = { viewModel.startRename(file) },
                             onDelete = { viewModel.deleteFile(file) }
                         )
@@ -135,6 +138,8 @@ fun FilesScreen(
             onDismiss = { viewModel.closeFileDetails() },
             onPlay = { FileUtils.openFile(context, file.localPath, file.mimeType) },
             onShare = { FileUtils.shareFile(context, file.localPath, file.mimeType) },
+            onForward = { FileUtils.forwardMedia(context, file.localPath, file.mimeType) },
+            onMessageInTelegram = { FileUtils.messageViaTelegram(context, file.localPath, file.mimeType) },
             onRename = {
                 viewModel.closeFileDetails()
                 viewModel.startRename(file)
@@ -185,6 +190,8 @@ fun FileItemCard(
     onClick: () -> Unit,
     onOpen: () -> Unit,
     onShare: () -> Unit,
+    onForward: () -> Unit = {},
+    onMessageInTelegram: () -> Unit = {},
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -259,6 +266,22 @@ fun FileItemCard(
                             showMenu = false
                         },
                         leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null, tint = AccentCyan) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Forward Video") },
+                        onClick = {
+                            onForward()
+                            showMenu = false
+                        },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = AccentCyan) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Send in Telegram") },
+                        onClick = {
+                            onMessageInTelegram()
+                            showMenu = false
+                        },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = AccentCyan) }
                     )
                     DropdownMenuItem(
                         text = { Text("Share") },

@@ -1,16 +1,13 @@
 package com.videorder.downloader.presentation.telegram
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.view.ViewGroup
-import android.webkit.CookieManager
-import android.webkit.DownloadListener
-import android.webkit.JavascriptInterface
-import android.webkit.URLUtil
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.webkit.*
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -23,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,17 +28,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.videorder.downloader.presentation.common.*
+import com.videorder.downloader.utils.FileUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 
 data class DetectedWebMedia(
     val url: String,
     val title: String,
-    val mimeType: String
+    val mimeType: String,
+    val isBlob: Boolean = false
 )
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -50,6 +57,7 @@ fun TelegramWebScreen(
     onStartDownload: (url: String, title: String, mimeType: String) -> Unit,
     onSessionAuthenticated: (label: String) -> Unit
 ) {
+    val context = LocalContext.current
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var currentUrl by remember { mutableStateOf("https://web.telegram.org/k/") }
     var pageTitle by remember { mutableStateOf("Telegram Web") }
@@ -59,6 +67,11 @@ fun TelegramWebScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var detectedMedia by remember { mutableStateOf<DetectedWebMedia?>(null) }
     var isAuthenticated by remember { mutableStateOf(false) }
+
+    // State for saved video downloaded from blob
+    var lastSavedFilePath by remember { mutableStateOf<String?>(null) }
+    var isSavingBlob by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
 
     // Intercept hardware/system back button
     BackHandler {
@@ -89,6 +102,27 @@ fun TelegramWebScreen(
                     },
                     onForwardClick = { webViewRef?.goForward() },
                     onRefreshClick = { webViewRef?.reload() },
+                    onForwardUrlClick = {
+                        FileUtils.shareTelegramLink(context, currentUrl, pageTitle)
+                    },
+                    onOpenInTelegramApp = {
+                        try {
+                            val tgUri = if (currentUrl.contains("web.telegram.org")) {
+                                Uri.parse("tg://resolve")
+                            } else {
+                                Uri.parse(currentUrl)
+                            }
+                            val intent = Intent(Intent.ACTION_VIEW, tgUri).apply {
+                                setPackage("org.telegram.messenger")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentUrl)))
+                            } catch (ignored: Exception) {}
+                        }
+                    },
                     onSwitchClient = {
                         val target = if (currentUrl.contains("/k/")) "https://web.telegram.org/a/" else "https://web.telegram.org/k/"
                         currentUrl = target
@@ -108,84 +142,179 @@ fun TelegramWebScreen(
             }
         },
         bottomBar = {
-            // Floating sniffer banner when video/file is detected
-            AnimatedVisibility(
-                visible = detectedMedia != null,
-                enter = slideInVertically(initialOffsetY = { it }),
-                exit = slideOutVertically(targetOffsetY = { it })
-            ) {
-                detectedMedia?.let { media ->
-                    Surface(
-                        color = SurfaceDark,
-                        tonalElevation = 8.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, AccentCyan.copy(alpha = 0.5f))
-                    ) {
-                        Row(
+            Column {
+                // Success banner for downloaded/saved video with Forward & Msg options
+                AnimatedVisibility(
+                    visible = lastSavedFilePath != null,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it })
+                ) {
+                    lastSavedFilePath?.let { filePath ->
+                        Surface(
+                            color = SurfaceDark,
+                            tonalElevation = 10.dp,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .border(1.dp, Color(0xFF00E676).copy(alpha = 0.6f))
                         ) {
-                            Box(
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Video Downloaded Successfully!",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { lastSavedFilePath = null },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { FileUtils.openFile(context, filePath, "video/mp4") },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AccentCyan, contentColor = BgDark),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Play", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { FileUtils.forwardMedia(context, filePath, "video/mp4") },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Forward", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                    }
+
+                                    Button(
+                                        onClick = { FileUtils.messageViaTelegram(context, filePath, "video/mp4") },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue, contentColor = Color.White),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.weight(1.2f)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Msg in Telegram", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Floating sniffer banner when video/file is detected
+                AnimatedVisibility(
+                    visible = detectedMedia != null && lastSavedFilePath == null,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it })
+                ) {
+                    detectedMedia?.let { media ->
+                        Surface(
+                            color = SurfaceDark,
+                            tonalElevation = 8.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, AccentCyan.copy(alpha = 0.5f))
+                        ) {
+                            Row(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(AccentCyan.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = if (media.mimeType.contains("video")) Icons.Default.Movie else Icons.Default.AttachFile,
-                                    contentDescription = null,
-                                    tint = AccentCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(AccentCyan.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (media.mimeType.contains("video")) Icons.Default.Movie else Icons.Default.AttachFile,
+                                        contentDescription = null,
+                                        tint = AccentCyan,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Media Detected in Telegram",
-                                    fontSize = 11.sp,
-                                    color = AccentCyan,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = media.title,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (media.isBlob) "Telegram Video Stream Detected" else "Media Detected",
+                                        fontSize = 11.sp,
+                                        color = AccentCyan,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = media.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
 
-                            Button(
-                                onClick = {
-                                    onStartDownload(media.url, media.title, media.mimeType)
-                                    detectedMedia = null
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = AccentCyan,
-                                    contentColor = BgDark
-                                ),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Download", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                                Button(
+                                    onClick = {
+                                        if (media.isBlob) {
+                                            isSavingBlob = true
+                                            val js = "window.__videorder_fetch_blob('${media.url}', '${media.title}');"
+                                            webViewRef?.evaluateJavascript(js, null)
+                                        } else {
+                                            onStartDownload(media.url, media.title, media.mimeType)
+                                        }
+                                        detectedMedia = null
+                                    },
+                                    enabled = !isSavingBlob,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AccentCyan,
+                                        contentColor = BgDark
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                                ) {
+                                    if (isSavingBlob) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = BgDark, strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Download", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
 
-                            IconButton(
-                                onClick = { detectedMedia = null },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextSecondaryDark, modifier = Modifier.size(18.dp))
+                                IconButton(
+                                    onClick = { detectedMedia = null },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextSecondaryDark, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
@@ -200,8 +329,8 @@ fun TelegramWebScreen(
         ) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
-                factory = { context ->
-                    WebView(context).apply {
+                factory = { ctx ->
+                    WebView(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -228,20 +357,65 @@ fun TelegramWebScreen(
                         // Direct Download Listener
                         setDownloadListener { url, _, contentDisposition, mimetype, _ ->
                             val filename = URLUtil.guessFileName(url, contentDisposition, mimetype)
-                            detectedMedia = DetectedWebMedia(
-                                url = url,
-                                title = filename,
-                                mimeType = mimetype ?: "video/mp4"
-                            )
+                            if (url.startsWith("blob:")) {
+                                val js = "window.__videorder_fetch_blob('$url', '$filename');"
+                                evaluateJavascript(js, null)
+                            } else {
+                                detectedMedia = DetectedWebMedia(
+                                    url = url,
+                                    title = filename,
+                                    mimeType = mimetype ?: "video/mp4",
+                                    isBlob = false
+                                )
+                            }
                         }
 
-                        // JavaScript Sniffer Bridge
+                        // JavaScript Sniffer & Blob Downloader Bridge
                         addJavascriptInterface(object {
                             @JavascriptInterface
                             fun onMediaDetected(url: String, mimeType: String, title: String) {
-                                if (url.isNotBlank() && !url.startsWith("blob:")) {
+                                if (url.isNotBlank()) {
                                     post {
-                                        detectedMedia = DetectedWebMedia(url, title, mimeType)
+                                        val isBlobUrl = url.startsWith("blob:")
+                                        detectedMedia = DetectedWebMedia(url, title, mimeType, isBlob = isBlobUrl)
+                                    }
+                                }
+                            }
+
+                            @JavascriptInterface
+                            fun saveBlobMedia(dataUrl: String, filename: String, mimeType: String) {
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    try {
+                                        val base64Index = dataUrl.indexOf("base64,")
+                                        val rawBase64 = if (base64Index != -1) dataUrl.substring(base64Index + 7) else dataUrl
+                                        val decodedBytes = android.util.Base64.decode(rawBase64, android.util.Base64.DEFAULT)
+
+                                        // Ignore tiny corrupt previews (< 25 KB)
+                                        if (decodedBytes.size < 25 * 1024 && (mimeType.contains("video") || filename.endsWith(".mp4"))) {
+                                            withContext(Dispatchers.Main) {
+                                                isSavingBlob = false
+                                                Toast.makeText(ctx, "Preview only. Please play video to download full stream.", Toast.LENGTH_SHORT).show()
+                                            }
+                                            return@launch
+                                        }
+
+                                        val safeName = FileUtils.sanitizeFilename(
+                                            filename.ifBlank { "Telegram_Video_${System.currentTimeMillis()}.mp4" }
+                                        )
+                                        val targetDir = FileUtils.getTargetDownloadDirectory(ctx)
+                                        val targetFile = FileUtils.getUniqueFile(targetDir, safeName)
+                                        FileOutputStream(targetFile).use { it.write(decodedBytes) }
+
+                                        withContext(Dispatchers.Main) {
+                                            isSavingBlob = false
+                                            lastSavedFilePath = targetFile.absolutePath
+                                            Toast.makeText(ctx, "Saved to ${targetFile.name} (${decodedBytes.size / 1024} KB)", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        withContext(Dispatchers.Main) {
+                                            isSavingBlob = false
+                                            Toast.makeText(ctx, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 }
                             }
@@ -282,17 +456,45 @@ fun TelegramWebScreen(
                                 canGoBack = view?.canGoBack() == true
                                 canGoForward = view?.canGoForward() == true
 
-                                // Inject Video/Media observer and Auth detector
+                                // Advanced sniffer for video playback, blob URLs, and anchor downloads
                                 val snifferScript = """
                                     (function() {
                                         if (window.__videorder_injected) return;
                                         window.__videorder_injected = true;
 
-                                        // Sniff video playing/loading
+                                        // Function to fetch blob and send to Android
+                                        window.__videorder_fetch_blob = function(blobUrl, filename) {
+                                            fetch(blobUrl)
+                                                .then(function(r) { return r.blob(); })
+                                                .then(function(blob) {
+                                                    var reader = new FileReader();
+                                                    reader.onloadend = function() {
+                                                        window.VideorderBridge.saveBlobMedia(reader.result, filename, blob.type || 'video/mp4');
+                                                    };
+                                                    reader.readAsDataURL(blob);
+                                                })
+                                                .catch(function(err) {
+                                                    console.error('Videorder blob fetch error', err);
+                                                });
+                                        };
+
+                                        // Intercept anchor clicks for blob downloads
+                                        var origClick = HTMLAnchorElement.prototype.click;
+                                        HTMLAnchorElement.prototype.click = function() {
+                                            var href = this.href;
+                                            var downloadName = this.download || ('Telegram_Media_' + Math.floor(Date.now() / 1000) + '.mp4');
+                                            if (href && href.startsWith('blob:')) {
+                                                window.__videorder_fetch_blob(href, downloadName);
+                                                return;
+                                            }
+                                            return origClick.apply(this, arguments);
+                                        };
+
+                                        // Sniff video playing/loading (both blob: and http:)
                                         document.addEventListener('play', function(e) {
                                             if (e.target && e.target.tagName === 'VIDEO') {
                                                 var src = e.target.currentSrc || e.target.src;
-                                                if (src && !src.startsWith('blob:')) {
+                                                if (src) {
                                                     var name = 'Telegram_Video_' + Math.floor(Date.now() / 1000) + '.mp4';
                                                     window.VideorderBridge.onMediaDetected(src, 'video/mp4', name);
                                                 }
@@ -336,6 +538,8 @@ fun TelegramWebTopBar(
     onBackClick: () -> Unit,
     onForwardClick: () -> Unit,
     onRefreshClick: () -> Unit,
+    onForwardUrlClick: () -> Unit,
+    onOpenInTelegramApp: () -> Unit,
     onSwitchClient: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -397,7 +601,7 @@ fun TelegramWebTopBar(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = if (isAuthenticated) "Signed in • Live Media Sniffer Active" else "Scan QR or Log in with Phone",
+                        text = if (isAuthenticated) "Signed in • Live Video Sniffer Active" else "Scan QR or Log in with Phone",
                         fontSize = 9.sp,
                         color = if (isAuthenticated) AccentCyan else TextSecondaryDark,
                         maxLines = 1
@@ -407,6 +611,26 @@ fun TelegramWebTopBar(
         }
 
         Spacer(modifier = Modifier.width(4.dp))
+
+        // Forward / Share Link Button
+        IconButton(onClick = onForwardUrlClick, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = "Share / Forward Link",
+                tint = AccentCyan,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // Open in Telegram App Button
+        IconButton(onClick = onOpenInTelegramApp, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Open in Telegram App",
+                tint = AccentBlue,
+                modifier = Modifier.size(18.dp)
+            )
+        }
 
         IconButton(onClick = onRefreshClick, modifier = Modifier.size(36.dp)) {
             Icon(

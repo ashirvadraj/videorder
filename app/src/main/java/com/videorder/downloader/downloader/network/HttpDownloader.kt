@@ -89,6 +89,21 @@ class HttpDownloader(
             throw NetworkInterruptedException("HTTP Error ${response.code}: ${response.message}")
         }
 
+        val rawContentType = response.header("Content-Type")?.lowercase() ?: ""
+        val isMediaExpected = task.mimeType.startsWith("video") || task.mimeType.startsWith("audio") ||
+                task.filename.endsWith(".mp4", ignoreCase = true) || task.filename.endsWith(".mkv", ignoreCase = true) ||
+                task.filename.endsWith(".webm", ignoreCase = true)
+
+        // Guard against saving 10-15KB HTML web pages as corrupt media files
+        if (isMediaExpected && (rawContentType.startsWith("text/html") || rawContentType.startsWith("text/plain"))) {
+            response.close()
+            if (destinationFile.exists()) destinationFile.delete()
+            throw NetworkInterruptedException(
+                "Server returned a webpage (HTML) instead of a video stream. " +
+                "If this is a Telegram video, open 'Official Telegram Web' in Videorder to download it directly with our live sniffer."
+            )
+        }
+
         val isPartial = response.code == 206
         val startingOffset = if (isPartial) existingBytes else 0L
         if (!isPartial && existingBytes > 0) {

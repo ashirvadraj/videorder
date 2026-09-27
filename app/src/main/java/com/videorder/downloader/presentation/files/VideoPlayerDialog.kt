@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +30,8 @@ fun VideoPlayerDialog(
     onDismiss: () -> Unit,
     onPlay: () -> Unit,
     onShare: () -> Unit,
+    onForward: () -> Unit = {},
+    onMessageInTelegram: () -> Unit = {},
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -128,6 +131,33 @@ fun VideoPlayerDialog(
                         Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("SHARE", fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onForward,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp), tint = AccentCyan)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("FORWARD", fontSize = 11.sp, color = AccentCyan)
+                    }
+
+                    OutlinedButton(
+                        onClick = onMessageInTelegram,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(14.dp), tint = AccentCyan)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("TELEGRAM", fontSize = 11.sp, color = AccentCyan)
                     }
                 }
 

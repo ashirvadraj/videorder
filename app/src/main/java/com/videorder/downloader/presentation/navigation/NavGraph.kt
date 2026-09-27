@@ -124,7 +124,25 @@ fun VideorderNavGraph(
             }
             TelegramScreen(
                 viewModel = telegramViewModel,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToWeb = { navController.navigate(Screen.TelegramWeb.route) }
+            )
+        }
+
+        composable(Screen.TelegramWeb.route) {
+            com.videorder.downloader.presentation.telegram.TelegramWebScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onStartDownload = { url, title, mimeType ->
+                    CoroutineScope(Dispatchers.IO).launch {
+                        app.startDownloadUseCase(url, title, mimeType)
+                    }
+                    navController.navigate(Screen.Downloads.route)
+                },
+                onSessionAuthenticated = { label ->
+                    CoroutineScope(Dispatchers.IO).launch {
+                        app.telegramRepository.saveWebSession(label)
+                    }
+                }
             )
         }
 

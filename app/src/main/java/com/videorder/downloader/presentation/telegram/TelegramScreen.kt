@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,7 +33,8 @@ import com.videorder.downloader.utils.Formatters
 @Composable
 fun TelegramScreen(
     viewModel: TelegramViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToWeb: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -43,6 +45,7 @@ fun TelegramScreen(
                 isLoggedIn = uiState.isLoggedIn,
                 accountInfo = uiState.sessionMetadata?.phoneNumberMasked ?: uiState.sessionMetadata?.username,
                 onNavigateBack = onNavigateBack,
+                onOpenWebClick = onNavigateToWeb,
                 onLoginClick = { viewModel.openLoginDialog() },
                 onLogoutClick = { viewModel.logout() }
             )
@@ -102,7 +105,8 @@ fun TelegramScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                onSignIn = { viewModel.openLoginDialog() },
+                onOpenWeb = onNavigateToWeb,
+                onMoreOptions = { viewModel.openLoginDialog() },
                 onDemoLogin = { viewModel.loginDemoMode() }
             )
         } else {
@@ -293,12 +297,9 @@ fun TelegramScreen(
         TelegramLoginDialog(
             state = uiState,
             onTabSelected = { viewModel.selectLoginTab(it) },
-            onPhoneChange = { viewModel.onPhoneChange(it) },
-            onCodeChange = { viewModel.onCodeChange(it) },
             onBotTokenChange = { viewModel.onBotTokenChange(it) },
-            onRequestCode = { viewModel.requestVerificationCode() },
-            onSubmitCode = { viewModel.submitCode() },
             onSubmitBotToken = { viewModel.submitBotToken() },
+            onOpenTelegramWeb = onNavigateToWeb,
             onDemoLogin = { viewModel.loginDemoMode() },
             onDismiss = { viewModel.closeLoginDialog() }
         )
@@ -310,6 +311,7 @@ fun TelegramTopBar(
     isLoggedIn: Boolean,
     accountInfo: String?,
     onNavigateBack: () -> Unit,
+    onOpenWebClick: () -> Unit,
     onLoginClick: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
@@ -322,7 +324,7 @@ fun TelegramTopBar(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
             }
             Column {
                 Text("Telegram Media", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
@@ -332,20 +334,36 @@ fun TelegramTopBar(
             }
         }
 
-        if (isLoggedIn) {
-            TextButton(onClick = onLogoutClick) {
-                Icon(Icons.Default.Logout, contentDescription = null, tint = StatusError, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Logout", color = StatusError, fontSize = 13.sp)
-            }
-        } else {
-            Button(
-                onClick = onLoginClick,
-                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue, contentColor = Color.White),
-                shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                Text("Sign In", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (isLoggedIn) {
+                OutlinedButton(
+                    onClick = onOpenWebClick,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentCyan),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(AccentCyan.copy(alpha = 0.5f))
+                    )
+                ) {
+                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(14.dp), tint = AccentCyan)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Live Web", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                IconButton(onClick = onLogoutClick) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Logout", tint = StatusError, modifier = Modifier.size(18.dp))
+                }
+            } else {
+                Button(
+                    onClick = onOpenWebClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentCyan, contentColor = BgDark),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text("Sign In", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
         }
     }
@@ -354,7 +372,8 @@ fun TelegramTopBar(
 @Composable
 fun TelegramLoggedOutView(
     modifier: Modifier = Modifier,
-    onSignIn: () -> Unit,
+    onOpenWeb: () -> Unit,
+    onMoreOptions: () -> Unit,
     onDemoLogin: () -> Unit
 ) {
     Column(
@@ -366,10 +385,10 @@ fun TelegramLoggedOutView(
             modifier = Modifier
                 .size(80.dp)
                 .clip(CircleShape)
-                .background(AccentBlue.copy(alpha = 0.15f)),
+                .background(AccentCyan.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Send, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(40.dp))
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(40.dp))
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -384,7 +403,7 @@ fun TelegramLoggedOutView(
         Spacer(modifier = Modifier.height(10.dp))
 
         Text(
-            text = "Sign in to browse and download videos, photos, and files from your Saved Messages, Channels, and Groups.",
+            text = "Sign in directly to your genuine Telegram account to browse your Saved Messages, Channels, and Groups with Videorder's media download sniffer.",
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -394,29 +413,54 @@ fun TelegramLoggedOutView(
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
-            onClick = onSignIn,
+            onClick = onOpenWeb,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp),
+                .height(52.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AccentCyan, contentColor = BgDark),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Sign in with Telegram", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Icon(Icons.Default.VerifiedUser, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Sign in with Official Telegram Web", fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Receive real OTP directly from Telegram (777000) or scan official QR code",
+            fontSize = 11.sp,
+            color = TextSecondaryDark,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
 
-        OutlinedButton(
-            onClick = onDemoLogin,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
-            shape = RoundedCornerShape(12.dp),
-            border = ButtonDefaults.outlinedButtonBorder.copy(
-                brush = androidx.compose.ui.graphics.SolidColor(AccentCyan)
-            )
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Explore Demo Sandbox (No Login Required)", color = AccentCyan, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            OutlinedButton(
+                onClick = onMoreOptions,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Bot API Token", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+
+            OutlinedButton(
+                onClick = onDemoLogin,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp),
+                shape = RoundedCornerShape(10.dp),
+                border = ButtonDefaults.outlinedButtonBorder.copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(AccentCyan)
+                )
+            ) {
+                Text("Demo Sandbox", color = AccentCyan, fontSize = 12.sp)
+            }
         }
     }
 }

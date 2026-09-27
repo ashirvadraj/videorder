@@ -18,6 +18,10 @@ class TelegramAuthUseCase(private val repository: TelegramRepository) {
 
     suspend fun loginWithBotToken(token: String) = repository.loginWithBotToken(token)
 
+    suspend fun saveWebSession(accountLabel: String, userId: Long = 0L, username: String? = null): Boolean {
+        return repository.saveWebSession(accountLabel, userId, username)
+    }
+
     suspend fun loginWithDemoSession(): Result<Boolean> {
         return repository.loginWithDemoSession()
     }

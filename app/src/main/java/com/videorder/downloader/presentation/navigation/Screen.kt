@@ -7,6 +7,7 @@ sealed class Screen(val route: String) {
     object Downloads : Screen("downloads")
     object History : Screen("history")
     object Telegram : Screen("telegram")
+    object TelegramWeb : Screen("telegram_web")
     object Files : Screen("files")
     object VideoPlayer : Screen("video_player/{filePath}") {
         fun createRoute(filePath: String): String {

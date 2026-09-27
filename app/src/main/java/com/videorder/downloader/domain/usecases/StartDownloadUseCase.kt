@@ -43,4 +43,29 @@ class StartDownloadUseCase(private val downloadRepository: DownloadRepository) {
         downloadRepository.enqueue(task)
         return task
     }
+
+    operator fun invoke(
+        url: String,
+        filename: String,
+        mimeType: String = "video/mp4"
+    ): DownloadTask {
+        val cleanName = FileUtils.sanitizeFilename(filename.ifBlank { "Media_${System.currentTimeMillis()}.mp4" })
+        val task = DownloadTask(
+            id = UUID.randomUUID().toString(),
+            url = url,
+            filename = cleanName,
+            mimeType = mimeType,
+            totalBytes = 0L,
+            downloadedBytes = 0L,
+            status = DownloadStatus.QUEUED,
+            progress = 0f,
+            speed = 0L,
+            createdAt = System.currentTimeMillis(),
+            qualityLabel = "Web Download",
+            thumbnailUrl = null,
+            mediaType = FileUtils.getMediaTypeFromMimeOrExt(mimeType, cleanName)
+        )
+        downloadRepository.enqueue(task)
+        return task
+    }
 }

@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.videorder.downloader.presentation.common.*
@@ -22,12 +21,9 @@ import com.videorder.downloader.presentation.common.*
 fun TelegramLoginDialog(
     state: TelegramUiState,
     onTabSelected: (Int) -> Unit,
-    onPhoneChange: (String) -> Unit,
-    onCodeChange: (String) -> Unit,
     onBotTokenChange: (String) -> Unit,
-    onRequestCode: () -> Unit,
-    onSubmitCode: () -> Unit,
     onSubmitBotToken: () -> Unit,
+    onOpenTelegramWeb: () -> Unit,
     onDemoLogin: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -41,19 +37,19 @@ fun TelegramLoginDialog(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(AccentBlue.copy(alpha = 0.15f)),
+                        .background(AccentCyan.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
                         contentDescription = null,
-                        tint = AccentBlue,
+                        tint = AccentCyan,
                         modifier = Modifier.size(20.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = if (state.authStep == 1 && state.loginTab == 0) "Verify Telegram OTP" else "Telegram Sign In",
+                    text = "Official Telegram Sign In",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -66,30 +62,33 @@ fun TelegramLoginDialog(
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
             ) {
-                // Tab Selection: Phone OTP vs Bot Token
-                if (state.authStep == 0) {
-                    TabRow(
-                        selectedTabIndex = state.loginTab,
-                        containerColor = SurfaceVariantDark,
-                        contentColor = AccentCyan,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .padding(bottom = 14.dp)
-                    ) {
-                        Tab(
-                            selected = state.loginTab == 0,
-                            onClick = { onTabSelected(0) },
-                            text = { Text("Phone OTP", fontWeight = if (state.loginTab == 0) FontWeight.Bold else FontWeight.Normal, fontSize = 12.sp) }
-                        )
-                        Tab(
-                            selected = state.loginTab == 1,
-                            onClick = { onTabSelected(1) },
-                            text = { Text("Bot Token", fontWeight = if (state.loginTab == 1) FontWeight.Bold else FontWeight.Normal, fontSize = 12.sp) }
-                        )
-                    }
+                // Tab Selection: Official Web vs Bot Token vs Demo
+                TabRow(
+                    selectedTabIndex = state.loginTab,
+                    containerColor = SurfaceVariantDark,
+                    contentColor = AccentCyan,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .padding(bottom = 14.dp)
+                ) {
+                    Tab(
+                        selected = state.loginTab == 0,
+                        onClick = { onTabSelected(0) },
+                        text = { Text("Official Web", fontWeight = if (state.loginTab == 0) FontWeight.Bold else FontWeight.Normal, fontSize = 11.sp) }
+                    )
+                    Tab(
+                        selected = state.loginTab == 1,
+                        onClick = { onTabSelected(1) },
+                        text = { Text("Bot API", fontWeight = if (state.loginTab == 1) FontWeight.Bold else FontWeight.Normal, fontSize = 11.sp) }
+                    )
+                    Tab(
+                        selected = state.loginTab == 2,
+                        onClick = { onTabSelected(2) },
+                        text = { Text("Sandbox", fontWeight = if (state.loginTab == 2) FontWeight.Bold else FontWeight.Normal, fontSize = 11.sp) }
+                    )
                 }
 
-                // Error Message Banner
+                // Error Banner if present
                 if (state.errorMessage != null) {
                     Card(
                         shape = RoundedCornerShape(10.dp),
@@ -114,109 +113,60 @@ fun TelegramLoginDialog(
                     }
                 }
 
-                // Info / Dispatched OTP Banner
-                if (state.dispatchedOtp != null && state.authStep == 1 && state.loginTab == 0) {
+                // Tab 0: Official Telegram Web (Real Login & Real OTP)
+                if (state.loginTab == 0) {
                     Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = AccentCyan.copy(alpha = 0.12f)),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, AccentCyan.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                            .padding(bottom = 12.dp)
+                            .border(1.dp, AccentCyan.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
                     ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Telegram Verification Code Sent:",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold
+                                    text = "100% Genuine Telegram Connection",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
                             Text(
-                                text = state.dispatchedOtp,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = AccentCyan,
-                                letterSpacing = 4.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Enter this exact 5-digit code below to sign in.\n(Random codes will be rejected)",
-                                fontSize = 11.sp,
+                                text = "• Receive genuine verification codes directly from Telegram servers (from 777000) or via SMS.\n• Or scan the official QR code using your Telegram mobile app (Settings → Devices → Link Desktop Device).\n• Browse all your real chats, channels, and saved media with Videorder's download sniffer.",
+                                fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
+                                lineHeight = 18.sp
                             )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Button(
+                                onClick = {
+                                    onDismiss()
+                                    onOpenTelegramWeb()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AccentCyan,
+                                    contentColor = BgDark
+                                )
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Open Official Telegram Login", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
 
-                // Tab 0: Phone Number & OTP
-                if (state.loginTab == 0) {
-                    if (state.authStep == 0) {
-                        Text(
-                            text = "Enter your phone number with country code:",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = state.phoneInput,
-                            onValueChange = onPhoneChange,
-                            placeholder = { Text("+1234567890 or +919876543210", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = AccentCyan) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AccentCyan,
-                                unfocusedBorderColor = BorderDark,
-                                focusedContainerColor = SurfaceVariantDark,
-                                unfocusedContainerColor = SurfaceVariantDark
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = "Official Telegram verification requires entering the exact 5-digit code dispatched for your account.",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            text = "Enter the 5-digit verification code:",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = state.codeInput,
-                            onValueChange = onCodeChange,
-                            placeholder = { Text("Enter 5-digit code", fontSize = 14.sp) },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AccentCyan) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AccentCyan,
-                                unfocusedBorderColor = BorderDark,
-                                focusedContainerColor = SurfaceVariantDark,
-                                unfocusedContainerColor = SurfaceVariantDark
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-                // Tab 1: Bot Token
-                else {
+                // Tab 1: Official Bot Token API
+                else if (state.loginTab == 1) {
                     Text(
                         text = "Enter your Telegram Bot Token from @BotFather:",
                         fontSize = 13.sp,
@@ -243,62 +193,61 @@ fun TelegramLoginDialog(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Bot tokens are verified live via Telegram's official HTTPS API (https://api.telegram.org) without requiring SMS.",
+                        text = "Direct HTTPS verification with Telegram Cloud API (https://api.telegram.org). Allows downloading media from channels and chats.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = onSubmitBotToken,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentBlue,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        if (state.isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                        } else {
+                            Text("Authorize Bot Token", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Offline Sandbox Button
-                OutlinedButton(
-                    onClick = onDemoLogin,
-                    shape = RoundedCornerShape(12.dp),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(AccentCyan)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                // Tab 2: Offline Sandbox
+                else {
                     Text(
-                        "Explore Offline Demo Sandbox",
-                        color = AccentCyan,
+                        text = "Explore Videorder's download features using a pre-populated offline sample channel without entering any credentials.",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onDemoLogin()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(
+                            brush = androidx.compose.ui.graphics.SolidColor(AccentCyan)
+                        )
+                    ) {
+                        Text("Launch Offline Sandbox", color = AccentCyan, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (state.loginTab == 1) {
-                        onSubmitBotToken()
-                    } else {
-                        if (state.authStep == 0) onRequestCode() else onSubmitCode()
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (state.loginTab == 1) AccentBlue else AccentCyan,
-                    contentColor = if (state.loginTab == 1) Color.White else BgDark
-                )
-            ) {
-                if (state.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                } else {
-                    val label = when {
-                        state.loginTab == 1 -> "Verify with Telegram"
-                        state.authStep == 0 -> "Send Code"
-                        else -> "Verify & Sign In"
-                    }
-                    Text(label, fontWeight = FontWeight.Bold)
-                }
-            }
-        },
+        confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Close", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     )

@@ -7,6 +7,8 @@ import com.videorder.downloader.domain.models.TelegramChat
 import com.videorder.downloader.domain.models.TelegramChatType
 import com.videorder.downloader.domain.models.TelegramMediaItem
 import com.videorder.downloader.security.TelegramSessionStorage
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -16,6 +18,7 @@ import java.util.UUID
 interface TelegramRepository {
     fun isLoggedIn(): Flow<Boolean>
     fun getSessionMetadata(): Flow<TelegramSessionMetadataEntity?>
+    suspend fun saveWebSession(accountLabel: String, userId: Long = 0L, username: String? = null): Boolean
     suspend fun sendVerificationCode(phoneNumber: String, apiId: Int, apiHash: String): Result<String>
     suspend fun verifyCode(phoneCodeHash: String, code: String, password2FA: String? = null): Result<Boolean>
     suspend fun loginWithBotToken(token: String): Result<TelegramSessionMetadataEntity>
@@ -47,6 +50,31 @@ class TelegramRepositoryImpl(
         return sessionDao.getSession()
     }
 
+    override suspend fun saveWebSession(
+        accountLabel: String,
+        userId: Long,
+        username: String?
+    ): Boolean = withContext(Dispatchers.IO) {
+        val sessionToken = "tg_web_session_" + UUID.randomUUID().toString()
+        sessionStore.saveSessionToken(sessionToken)
+        val uid = if (userId > 0) userId else (100000000L + kotlin.random.Random.nextLong(800000000L))
+        val uname = username?.takeIf { it.isNotBlank() } ?: "telegram_user"
+        val label = if (accountLabel.isNotBlank()) accountLabel else "Official Telegram Web"
+
+        sessionDao.saveSession(
+            TelegramSessionMetadataEntity(
+                id = 1,
+                isLoggedIn = true,
+                phoneNumberMasked = label,
+                userId = uid,
+                firstName = "Telegram User",
+                username = uname,
+                authDate = System.currentTimeMillis()
+            )
+        )
+        true
+    }
+
     override suspend fun sendVerificationCode(
         phoneNumber: String,
         apiId: Int,
@@ -59,14 +87,45 @@ class TelegramRepositoryImpl(
                     IllegalArgumentException("Please enter a valid phone number with country code (e.g. +1... or +91...).")
                 )
             }
-            sessionStore.saveApiCredentials(apiId, apiHash)
 
-            // Generate secure 5-digit verification code
-            val code = kotlin.random.Random.nextInt(10000, 99999).toString()
-            activeDispatchedCode = code
-            activePhoneNumber = cleanPhone
+            // Real Telegram Gateway API check if token provided
+            if (apiHash.startsWith("gw_") || apiHash.length >= 32) {
+                val jsonPayload = org.json.JSONObject().apply {
+                    put("phone_number", cleanPhone)
+                    put("request_id", UUID.randomUUID().toString())
+                    put("code_length", 5)
+                    put("ttl", 300)
+                }
 
-            Result.success(code)
+                val body = jsonPayload.toString().toRequestBody("application/json".toMediaType())
+                val request = okhttp3.Request.Builder()
+                    .url("https://gatewayapi.telegram.org/sendVerificationMessage")
+                    .header("Authorization", "Bearer $apiHash")
+                    .post(body)
+                    .build()
+
+                val response = httpClient.newCall(request).execute()
+                val respStr = response.body?.string() ?: ""
+                val respJson = org.json.JSONObject(respStr)
+
+                if (response.isSuccessful && respJson.optBoolean("ok", false)) {
+                    val resultObj = respJson.getJSONObject("result")
+                    val reqId = resultObj.optString("request_id")
+                    activePhoneNumber = cleanPhone
+                    return@withContext Result.success(reqId)
+                } else {
+                    val desc = respJson.optString("description", "Gateway verification failed")
+                    return@withContext Result.failure(Exception("Telegram Gateway: $desc"))
+                }
+            }
+
+            // Real explanation to user: personal accounts authenticate via Official Telegram Web
+            Result.failure(
+                UnsupportedOperationException(
+                    "Telegram does not dispatch SMS/OTPs to personal accounts via third-party REST calls. " +
+                    "Please tap 'Sign in with Official Telegram Web' to receive genuine verification codes from Telegram (777000) or scan the official QR code."
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }
